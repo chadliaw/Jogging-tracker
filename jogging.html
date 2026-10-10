@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d1a17">
+<title>跑步紀錄</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<style>
+/* Layout: one-column runner's console — giant clock, metric strip, map, splits, log, history */
+:root{
+  --bg:#f5f2ee; --surface:#ffffff; --ink:#1d1a17; --muted:#6f665d; --line:#e2dbd2;
+  --track:#c8462a; --track-ink:#ffffff; --go:#2f7d4f; --warn:#b07a12;
+  --f-num:"Barlow Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#171513; --surface:#211e1b; --ink:#f1ece6; --muted:#a39a90; --line:#36312c;
+  --track:#e3613f; --track-ink:#1a0f0b; --go:#5cbf84; --warn:#e0a73a; color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding:env(safe-area-inset-top,0px) 16px calc(24px + env(safe-area-inset-bottom,0px))}
+.wrap{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px;padding-block:12px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+h1{font-size:18px;margin:0;letter-spacing:.02em}
+.status{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.status.on .dot{background:var(--go)} .status.pause .dot{background:var(--warn)}
+.clock{font-family:var(--f-num);font-weight:700;font-size:clamp(64px,22vw,112px);line-height:.9;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em;text-align:center}
+.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.m{background:var(--surface);padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.m b{font-family:var(--f-num);font-size:34px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.m b small{font-size:16px;color:var(--muted);font-weight:500;margin-left:4px}
+.m span{font-size:12px;color:var(--muted);letter-spacing:.06em}
+.gps{font-size:12px;color:var(--muted);text-align:center;font-variant-numeric:tabular-nums}
+.gps.bad{color:var(--warn)}
+.controls{display:flex;gap:10px}
+button{font:inherit;cursor:pointer;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:12px 14px;font-weight:500}
+button:focus-visible{outline:3px solid var(--track);outline-offset:2px}
+button:disabled{opacity:.4;cursor:default}
+.big{flex:1;font-size:18px;font-weight:700;padding:16px;border:none;background:var(--track);color:var(--track-ink)}
+.big.pause{background:var(--ink);color:var(--bg)}
+.confirm{display:flex;gap:8px;align-items:center;justify-content:center;font-size:14px;flex-wrap:wrap}
+#map{height:260px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+#map.nomap{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px}
+section h2{font-size:13px;letter-spacing:.08em;color:var(--muted);margin:0 0 8px;font-weight:500}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:13px}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-weight:500;color:var(--muted);font-size:12px}
+th:first-child,td:first-child{text-align:left}
+tr:last-child td{border-bottom:none}
+.log{max-height:220px;overflow:auto}
+.empty{padding:14px;color:var(--muted);font-size:13px;text-align:center}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+.row button{flex:1;min-width:120px;font-size:14px}
+.hist{display:flex;flex-direction:column;gap:8px}
+.run{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.run .info{min-width:0}
+.run .d{font-family:var(--f-num);font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+.run .s{font-size:12px;color:var(--muted)}
+.run .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.run .acts button{padding:6px 10px;font-size:12px}
+.note{font-size:12px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>跑步紀錄</h1>
+    <div class="status" id="status"><span class="dot"></span><span id="statusText">待命</span></div>
+  </header>
+
+  <div class="clock" id="clock">00:00</div>
+
+  <div class="metrics">
+    <div class="m"><b id="mDist">0.00<small>km</small></b><span>距離</span></div>
+    <div class="m"><b id="mPace">--'--"<small>/km</small></b><span>目前配速</span></div>
+    <div class="m"><b id="mSpeed">0.0<small>km/h</small></b><span>目前速度</span></div>
+    <div class="m"><b id="mAvg">--'--"<small>/km</small></b><span>平均配速</span></div>
+  </div>
+
+  <div class="gps" id="gps">尚未取得 GPS 訊號</div>
+
+  <div class="controls" id="controls">
+    <button class="big" id="btnMain">開始跑步</button>
+    <button id="btnStop" hidden>結束</button>
+  </div>
+  <div class="confirm" id="confirm" hidden>
+    <span>結束並儲存這次跑步？</span>
+    <button id="btnSave">儲存</button>
+    <button id="btnDiscard">捨棄</button>
+    <button id="btnCancel">繼續跑</button>
+  </div>
+
+  <div id="map"></div>
+
+  <section>
+    <h2>每公里分段</h2>
+    <div class="tbl"><table>
+      <thead><tr><th>公里</th><th>分段時間</th><th>配速</th><th>累計時間</th></tr></thead>
+      <tbody id="splits"><tr><td colspan="4" class="empty">跑滿 1 公里後會出現分段</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>位置紀錄</h2>
+    <div class="tbl log"><table>
+      <thead><tr><th>時間</th><th>緯度</th><th>經度</th><th>速度</th><th>精度</th></tr></thead>
+      <tbody id="log"><tr><td colspan="5" class="empty">開始後每筆 GPS 定位都會記在這裡</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <h2>歷史紀錄</h2>
+    <div class="row" style="margin-bottom:8px">
+      <button id="btnDemo">播放示範路線</button>
+    </div>
+    <div class="hist" id="hist"></div>
+    <p class="note">紀錄存在這支手機的瀏覽器裡。換手機或清除瀏覽資料會消失，重要的跑步記得匯出 GPX 或 CSV。</p>
+  </section>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+const MAX_ACC=35;          // 精度超過 35 m 的點不算距離
+const MAX_SPEED=12;        // 超過 12 m/s 視為 GPS 跳點
+const PACE_WINDOW=30000;   // 目前配速取最近 30 秒
+const STORE="runlog.v1";
+
+let state="idle";          // idle | running | paused
+let points=[];             // {t,lat,lng,acc,spd,d,e,seg}
+let dist=0, elapsedBase=0, resumeAt=0, seg=0, lastGood=null;
+let watchId=null, wakeLock=null, demoTimer=null, isDemo=false;
+let map=null, lines=[], marker=null;
+
+/* ---------- 計算 ---------- */
+function hav(a,b){
+  const R=6371000,r=Math.PI/180;
+  const dLat=(b.lat-a.lat)*r,dLng=(b.lng-a.lng)*r;
+  const x=Math.sin(dLat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(x));
+}
+function elapsed(){return elapsedBase+(state==="running"?Date.now()-resumeAt:0);}
+function fmtTime(ms){
+  const s=Math.floor(ms/1000),h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+  const p=n=>String(n).padStart(2,"0");
+  return h?`${h}:${p(m)}:${p(ss)}`:`${p(m)}:${p(ss)}`;
+}
+function fmtPace(secPerKm){
+  if(!isFinite(secPerKm)||secPerKm<=0||secPerKm>3600)return `--'--"`;
+  const m=Math.floor(secPerKm/60),s=Math.round(secPerKm%60);
+  return s===60?`${m+1}'00"`:`${m}'${String(s).padStart(2,"0")}"`;
+}
+function clock(t){const d=new Date(t);return d.toLocaleTimeString("zh-TW",{hour12:false});}
+
+/* ---------- 地圖 ---------- */
+function initMap(){
+  if(typeof L==="undefined"){
+    const el=$("map");el.classList.add("nomap");el.textContent="地圖載入失敗（需要網路），位置仍會照常記錄";return;
+  }
+  map=L.map("map",{zoomControl:true,attributionControl:true}).setView([25.033,121.5654],15);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+}
+function trackColor(){return getComputedStyle(document.documentElement).getPropertyValue("--track").trim()||"#c8462a";}
+function clearMap(){if(!map)return;lines.forEach(l=>map.removeLayer(l));lines=[];if(marker){map.removeLayer(marker);marker=null;}}
+function drawPoint(p){
+  if(!map)return;
+  if(!lines[p.seg]){lines[p.seg]=L.polyline([],{color:trackColor(),weight:5,opacity:.9}).addTo(map);}
+  lines[p.seg].addLatLng([p.lat,p.lng]);
+  if(!marker)marker=L.circleMarker([p.lat,p.lng],{radius:7,color:"#fff",weight:2,fillColor:trackColor(),fillOpacity:1}).addTo(map);
+  else marker.setLatLng([p.lat,p.lng]);
+  map.panTo([p.lat,p.lng],{animate:false});
+}
+function drawRoute(pts){
+  clearMap(); if(!map||!pts.length)return;
+  pts.forEach(drawPoint);
+  const b=L.latLngBounds(pts.map(p=>[p.lat,p.lng]));map.fitBounds(b,{padding:[20,20]});
+}
+
+/* ---------- 定位 ---------- */
+function onFix(lat,lng,acc,t){
+  const gps=$("gps");
+  gps.textContent=`GPS 精度 ±${Math.round(acc)} m`;
+  gps.classList.toggle("bad",acc>MAX_ACC);
+  if(state!=="running")return;
+  const e=elapsed();
+  const p={t,lat,lng,acc,spd:0,d:dist,e,seg};
+  if(acc<=MAX_ACC){
+    if(lastGood&&lastGood.seg===seg){
+      const dd=hav(lastGood,p),dt=(t-lastGood.t)/1000;
+      if(dt>0&&dd/dt<=MAX_SPEED){dist+=dd;p.spd=dd/dt;}
+      else if(dt>0) return; // 跳點，丟掉
+    }
+    p.d=dist;lastGood=p;
+  }
+  points.push(p);
+  drawPoint(p);
+  addLog(p);
+  updateMetrics();
+  updateSplits();
+}
+function startWatch(){
+  if(!("geolocation" in navigator)){$("gps").textContent="這個瀏覽器不支援定位";return;}
+  watchId=navigator.geolocation.watchPosition(
+    pos=>onFix(pos.coords.latitude,pos.coords.longitude,pos.coords.accuracy,pos.timestamp||Date.now()),
+    err=>{const g=$("gps");g.classList.add("bad");
+      g.textContent=err.code===1?"定位權限被拒絕，請到瀏覽器設定允許位置存取":err.code===3?"定位逾時，到空曠處再試":"暫時抓不到 GPS 訊號";},
+    {enableHighAccuracy:true,maximumAge:0,timeout:20000});
+}
+function stopWatch(){if(watchId!==null){navigator.geolocation.clearWatch(watchId);watchId=null;}}
+async function keepAwake(on){
+  try{
+    if(on&&"wakeLock" in navigator&&!wakeLock){wakeLock=await navigator.wakeLock.request("screen");wakeLock.addEventListener("release",()=>{wakeLock=null;});}
+    if(!on&&wakeLock){await wakeLock.release();wakeLock=null;}
+  }catch(_){}
+}
+document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="visible"&&state==="running")keepAwake(true);});
+
+/* ---------- 畫面 ---------- */
+function updateMetrics(){
+  $("mDist").innerHTML=`${(dist/1000).toFixed(2)}<small>km</small>`;
+  const now=points.length?points[points.length-1]:null;
+  let pace=NaN,spd=0;
+  if(now){
+    const win=points.filter(p=>p.seg===now.seg&&p.acc<=MAX_ACC&&now.e-p.e<=PACE_WINDOW);
+    if(win.length>1){const a=win[0],b=win[win.length-1];const dd=b.d-a.d,dt=(b.e-a.e)/1000;
+      if(dd>5&&dt>0){spd=dd/dt;pace=1000/spd;}}
+  }
+  $("mPace").innerHTML=`${fmtPace(pace)}<small>/km</small>`;
+  $("mSpeed").innerHTML=`${(spd*3.6).toFixed(1)}<small>km/h</small>`;
+  const e=elapsed();
+  $("mAvg").innerHTML=`${fmtPace(dist>20?(e/1000)/(dist/1000):NaN)}<small>/km</small>`;
+}
+function computeSplits(pts){
+  const out=[];let k=1,prevE=0;
+  for(let i=1;i<pts.length;i++){
+    while(pts[i].d>=k*1000){
+      const a=pts[i-1],b=pts[i];
+      const f=b.d===a.d?1:(k*1000-a.d)/(b.d-a.d);
+      const e=a.e+(b.e-a.e)*f;
+      out.push({km:k,split:e-prevE,total:e});prevE=e;k++;
+    }
+  }
+  return out;
+}
+function updateSplits(){
+  const s=computeSplits(points),tb=$("splits");
+  if(!s.length){tb.innerHTML=`<tr><td colspan="4" class="empty">跑滿 1 公里後會出現分段</td></tr>`;return;}
+  tb.innerHTML=s.map(x=>`<tr><td>${x.km}</td><td>${fmtTime(x.split)}</td><td>${fmtPace(x.split/1000)}</td><td>${fmtTime(x.total)}</td></tr>`).join("");
+}
+function addLog(p){
+  const tb=$("log");
+  if(tb.querySelector(".empty"))tb.innerHTML="";
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td>${clock(p.t)}</td><td>${p.lat.toFixed(6)}</td><td>${p.lng.toFixed(6)}</td><td>${(p.spd*3.6).toFixed(1)} km/h</td><td>±${Math.round(p.acc)} m</td>`;
+  tb.insertBefore(tr,tb.firstChild);
+  while(tb.children.length>300)tb.removeChild(tb.lastChild);
+}
+function renderLog(pts){
+  const tb=$("log");tb.innerHTML="";
+  if(!pts.length){tb.innerHTML=`<tr><td colspan="5" class="empty">開始後每筆 GPS 定位都會記在這裡</td></tr>`;return;}
+  pts.slice(-300).forEach(addLog);
+}
+function setStatus(){
+  const st=$("status"),txt=$("statusText"),main=$("btnMain"),stop=$("btnStop");
+  st.className="status"+(state==="running"?" on":state==="paused"?" pause":"");
+  txt.textContent={idle:"待命",running:isDemo?"示範播放中":"記錄中",paused:"暫停"}[state];
+  main.textContent={idle:"開始跑步",running:"暫停",paused:"繼續"}[state];
+  main.classList.toggle("pause",state==="running");
+  stop.hidden=state==="idle";
+  $("btnDemo").disabled=state!=="idle";
+}
+setInterval(()=>{if(state!=="idle")$("clock").textContent=fmtTime(elapsed());},250);
+
+/* ---------- 控制 ---------- */
+function reset(){
+  points=[];dist=0;elapsedBase=0;seg=0;lastGood=null;
+  clearMap();renderLog([]);updateSplits();updateMetrics();$("clock").textContent="00:00";
+}
+function start(demo){
+  reset();isDemo=!!demo;state="running";resumeAt=Date.now();
+  if(isDemo)runDemo();else{startWatch();keepAwake(true);}
+  setStatus();
+}
+function pause(){elapsedBase=elapsed();state="paused";seg++;setStatus();}
+function resume(){resumeAt=Date.now();state="running";setStatus();}
+$("btnMain").addEventListener("click",()=>{
+  if(state==="idle")start(false);else if(state==="running")pause();else resume();
+});
+$("btnStop").addEventListener("click",()=>{
+  if(state==="running")pause();
+  $("controls").hidden=true;$("confirm").hidden=false;
+});
+$("btnCancel").addEventListener("click",()=>{$("confirm").hidden=true;$("controls").hidden=false;resume();});
+function finish(save){
+  elapsedBase=elapsed();state="idle";stopWatch();keepAwake(false);
+  if(demoTimer){clearInterval(demoTimer);demoTimer=null;}
+  if(save&&points.length>1){
+    const runs=loadRuns();
+    runs.unshift({id:Date.now(),start:points[0].t,dist,dur:elapsedBase,demo:isDemo,
+      pts:points.map(p=>[p.t,+p.lat.toFixed(6),+p.lng.toFixed(6),Math.round(p.acc),+p.spd.toFixed(2),Math.round(p.d),p.e,p.seg])});
+    saveRuns(runs);
+  }
+  $("confirm").hidden=true;$("controls").hidden=false;isDemo=false;setStatus();renderHist();
+}
+$("btnSave").addEventListener("click",()=>finish(true));
+$("btnDiscard").addEventListener("click",()=>{finish(false);reset();});
+
+/* ---------- 示範 ---------- */
+function runDemo(){
+  // 大安森林公園外圈附近，約 3 m/s，10 倍速播放
+  const c={lat:25.0300,lng:121.5355},rx=0.0042,ry=0.0034;
+  let i=0;const steps=720;
+  demoTimer=setInterval(()=>{
+    if(state!=="running")return;
+    const a=(i/steps)*Math.PI*2*1.6;
+    const wob=Math.sin(i/7)*0.00003;
+    const lat=c.lat+ry*Math.sin(a)+wob,lng=c.lng+rx*Math.cos(a)-wob;
+    resumeAt-=900; // 時間快轉
+    onFix(lat,lng,5+Math.random()*6,Date.now()+i*900);
+    $("gps").textContent="示範資料（不是你的真實位置）";
+    if(++i>steps){finish(true);}
+  },100);
+}
+$("btnDemo").addEventListener("click",()=>start(true));
+
+/* ---------- 歷史與匯出 ---------- */
+function loadRuns(){try{return JSON.parse(localStorage.getItem(STORE)||"[]");}catch(_){return [];}}
+function saveRuns(r){try{localStorage.setItem(STORE,JSON.stringify(r));}catch(_){alertNote("儲存空間不足，請先匯出並刪除舊紀錄");}}
+function alertNote(t){$("gps").textContent=t;$("gps").classList.add("bad");}
+function expand(run){return run.pts.map(a=>({t:a[0],lat:a[1],lng:a[2],acc:a[3],spd:a[4],d:a[5],e:a[6],seg:a[7]}));}
+function download(name,text,type){
+  const blob=new Blob([text],{type});const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");a.href=url;a.download=name;document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(url);a.remove();},1000);
+}
+function stamp(t){const d=new Date(t),p=n=>String(n).padStart(2,"0");return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;}
+function toGPX(run){
+  const pts=expand(run);const segs={};
+  pts.forEach(p=>{(segs[p.seg]=segs[p.seg]||[]).push(p);});
+  const body=Object.values(segs).map(s=>"<trkseg>\n"+s.map(p=>
+    `<trkpt lat="${p.lat}" lon="${p.lng}"><time>${new Date(p.t).toISOString()}</time></trkpt>`).join("\n")+"\n</trkseg>").join("\n");
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="跑步紀錄" xmlns="http://www.topografix.com/GPX/1/1">\n<trk><name>Run ${new Date(run.start).toLocaleString("zh-TW")}</name><type>running</type>\n${body}\n</trk>\n</gpx>\n`;
+}
+function toCSV(run){
+  const head="時間,緯度,經度,精度_m,速度_kmh,累計距離_m,運動時間_s,段落\n";
+  return "﻿"+head+expand(run).map(p=>[new Date(p.t).toISOString(),p.lat,p.lng,p.acc,(p.spd*3.6).toFixed(2),p.d,(p.e/1000).toFixed(1),p.seg].join(",")).join("\n");
+}
+let pendingDelete=null;
+function renderHist(){
+  const runs=loadRuns(),el=$("hist");
+  if(!runs.length){el.innerHTML=`<div class="empty run" style="justify-content:center">還沒有紀錄。按「開始跑步」，或先播放示範路線看看。</div>`;return;}
+  el.innerHTML=runs.map(r=>{
+    const d=new Date(r.start);
+    const del=pendingDelete===r.id;
+    return `<div class="run"><div class="info">
+      <div class="d">${(r.dist/1000).toFixed(2)} km · ${fmtTime(r.dur)}</div>
+      <div class="s">${d.toLocaleDateString("zh-TW")} ${d.toLocaleTimeString("zh-TW",{hour:"2-digit",minute:"2-digit",hour12:false})} · 配速 ${fmtPace(r.dist>20?(r.dur/1000)/(r.dist/1000):NaN)}${r.demo?" · 示範":""}</div>
+    </div><div class="acts">
+      ${del?`<button data-a="del2" data-id="${r.id}">確定刪除</button><button data-a="keep">取消</button>`:
+      `<button data-a="view" data-id="${r.id}">查看</button><button data-a="gpx" data-id="${r.id}">GPX</button><button data-a="csv" data-id="${r.id}">CSV</button><button data-a="del" data-id="${r.id}">刪除</button>`}
+    </div></div>`;}).join("");
+}
+$("hist").addEventListener("click",ev=>{
+  const b=ev.target.closest("button");if(!b)return;
+  const runs=loadRuns(),id=+b.dataset.id,run=runs.find(r=>r.id===id),a=b.dataset.a;
+  if(a==="view"&&run&&state==="idle"){
+    points=expand(run);dist=run.dist;elapsedBase=run.dur;
+    $("clock").textContent=fmtTime(run.dur);drawRoute(points);renderLog(points);updateSplits();updateMetrics();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }
+  if(a==="gpx"&&run)download(`run-${stamp(run.start)}.gpx`,toGPX(run),"application/gpx+xml");
+  if(a==="csv"&&run)download(`run-${stamp(run.start)}.csv`,toCSV(run),"text/csv;charset=utf-8");
+  if(a==="del"){pendingDelete=id;renderHist();}
+  if(a==="keep"){pendingDelete=null;renderHist();}
+  if(a==="del2"){saveRuns(runs.filter(r=>r.id!==id));pendingDelete=null;renderHist();}
+});
+
+window.addEventListener("beforeunload",e=>{if(state!=="idle"){e.preventDefault();e.returnValue="";}});
+
+initMap();setStatus();renderHist();
+})();
+</script>
+</body>
+</html>
